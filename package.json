@@ -1,0 +1,58 @@
+{
+    "name": "elm-vscode",
+    "displayName": "elm-vscode",
+    "description": "",
+    "version": "0.0.1",
+    "publisher": "joe",
+    "engines": {
+        "vscode": "^1.28.0"
+    },
+    "categories": [
+        "Other"
+    ],
+    "activationEvents": [
+        "onLanguage:elm"
+    ],
+    "main": "./out/extension",
+    "contributes": {
+        "languages": [
+            {
+                "id": "elm",
+                "aliases": [
+                    "Elm",
+                    "elm"
+                ],
+                "extensions": [
+                    ".elm"
+                ]
+            }
+        ],
+        "commands": [
+            {
+                "command": "extension.sayHello",
+                "title": "Hello World"
+            }
+        ]
+    },
+    "scripts": {
+        "vscode:prepublish": "npm run compile",
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./",
+        "postinstall": "node ./node_modules/vscode/bin/install",
+        "test": "npm run compile && node ./node_modules/vscode/bin/test"
+    },
+    "devDependencies": {
+        "typescript": "^2.6.1",
+        "vscode": "^1.1.21",
+        "tslint": "^5.8.0",
+        "@types/node": "^8.10.25",
+        "@types/mocha": "^2.2.42"
+    },
+    "dependencies": {
+        "@types/lodash": "^4.14.117",
+        "elm-module-parser": "0.1.1",
+        "fast-glob": "^2.2.3",
+        "glob-fs": "^0.1.7",
+        "lodash": "^4.17.11"
+    }
+}
