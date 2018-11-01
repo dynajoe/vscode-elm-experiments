@@ -44,17 +44,29 @@ export class ElmCompletionProvider implements vscode.CompletionItemProvider {
 
       const possible_imports = _.filter(
          elm_module.imports,
-         (i: ModuleImport): boolean => i.module.startsWith(_.isEmpty(prefix) ? text : prefix)
+         (i: ModuleImport): boolean => {
+            const match_text = _.isEmpty(prefix) ? text : prefix
+            return i.module.startsWith(match_text) || (i.alias || '').startsWith(_.isEmpty(prefix) ? text : prefix)
+         }
       )
 
-      const import_views = _(
+      const import_views = _.compact(
          await Promise.all(
-            possible_imports.map(i => getGlobalProjectManager().moduleFromName(document.fileName, i.module))
+            possible_imports.map(async i => {
+               const m = await getGlobalProjectManager().moduleFromName(document.fileName, i.module)
+
+               if (_.isNil(m)) {
+                  return null
+               }
+
+               return {
+                  import: i,
+                  module: m,
+                  view: exposedOnlyView(m),
+               }
+            })
          )
       )
-         .compact()
-         .map(i => ({ module: i, view: exposedOnlyView(i) }))
-         .value()
 
       if (context === 'function') {
          return _.concat(
@@ -102,25 +114,31 @@ export class ElmCompletionProvider implements vscode.CompletionItemProvider {
                   .map(([a]) => a)
                   .value()
 
-               if (_.isEmpty(completion_parts)) {
-                  return view.view.functions.map(t => {
-                     return new ElmCompletionItem(
-                        t.name,
-                        vscode.CompletionItemKind.Function,
-                        document.fileName,
-                        view.module.name,
-                        t.name
-                     )
-                  })
-               } else {
-                  return new ElmCompletionItem(
-                     completion_parts.join('.'),
-                     vscode.CompletionItemKind.Class,
-                     document.fileName,
-                     view.module.name,
-                     view.view.name
+               return _.compact(
+                  [
+                     _.isEmpty(completion_parts)
+                        ? null
+                        : new ElmCompletionItem(
+                             completion_parts.join('.'),
+                             vscode.CompletionItemKind.Class,
+                             document.fileName,
+                             view.module.name,
+                             view.view.name
+                          ),
+                  ].concat(
+                     view.module.name === prefix || view.import.alias === prefix
+                        ? view.view.functions.map(t => {
+                             return new ElmCompletionItem(
+                                t.name,
+                                vscode.CompletionItemKind.Function,
+                                document.fileName,
+                                view.module.name,
+                                t.name
+                             )
+                          })
+                        : null
                   )
-               }
+               )
             })
             .value()
       }
