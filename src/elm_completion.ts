@@ -1,7 +1,7 @@
 import * as vscode from 'vscode'
 import { getGlobalProjectManager } from './elm_project'
 import * as _ from 'lodash'
-import { Module, ImportStatement, exposedOnlyView } from 'elm-module-parser'
+import { Module, ModuleImport, exposedOnlyView } from 'elm-module-parser'
 
 type ModuleContext = 'function' | 'import' | 'type' | 'module'
 
@@ -12,13 +12,16 @@ export class ElmCompletionProvider implements vscode.CompletionItemProvider {
       cancellation: vscode.CancellationToken,
       completion_context: vscode.CompletionContext
    ): Promise<vscode.CompletionItem[]> {
-      const word_range = document.getWordRangeAtPosition(position, /[A-Za-z0-9_.]+/)
+      const word_range = document.getWordRangeAtPosition(position, /[A-Za-z0-9_+-/*=.<>:&|^?%!]+/)
 
       if (_.isNil(word_range)) {
          return []
       }
 
       const elm_project_manager = getGlobalProjectManager()
+
+      elm_project_manager.invalidatePath(document.fileName)
+
       const elm_module = await elm_project_manager.moduleFromPath(document.fileName)
 
       if (_.isNil(elm_module)) {
@@ -29,7 +32,7 @@ export class ElmCompletionProvider implements vscode.CompletionItemProvider {
 
       const possible_imports = _.filter(
          elm_module.imports,
-         (i: ImportStatement): boolean => i.module.startsWith(_.isEmpty(prefix) ? text : prefix)
+         (i: ModuleImport): boolean => i.module.startsWith(_.isEmpty(prefix) ? text : prefix)
       )
 
       const import_views = _(
@@ -111,6 +114,10 @@ const ELM_MODE: vscode.DocumentFilter = { language: 'elm', scheme: 'file' }
 
 export function registerElmCompetionProviders(context: vscode.ExtensionContext) {
    const completion_provider = vscode.languages.registerCompletionItemProvider(ELM_MODE, new ElmCompletionProvider())
+
+   vscode.workspace.onDidSaveTextDocument(d => {
+      getGlobalProjectManager().invalidatePath(d.fileName)
+   })
 
    context.subscriptions.push(completion_provider)
 }
