@@ -14,8 +14,10 @@ interface ElmProjectDefinition {
    source_dirs: string[]
    dependencies: {
       name: string
+      exposed_modules: string[]
       version: string
       package_path: string
+      documentation: any
    }[]
 }
 
@@ -78,6 +80,30 @@ export class ElmProjectManager {
       }
    }
 
+   public async docs(contextual_path: string, module_name: string, path: string): Promise<any> {
+      const elm_project = await this.projectDefinitionForPath(contextual_path)
+
+      if (_.isNil(elm_project)) {
+         return null
+      }
+
+      const documentation = _(elm_project.dependencies)
+         .flatMap(dep => {
+            if (!_.includes(dep.exposed_modules, module_name)) {
+               return []
+            }
+
+            return _.compact(
+               dep.documentation
+                  .filter((doc: any) => doc.name === module_name)
+                  .map((doc: any) => _.find(doc.values, v => v.name === path))
+            )
+         })
+         .first()
+
+      return documentation
+   }
+
    public invalidatePath(module_path: string): ElmProjectManager {
       delete this.cache[module_path]
       return this
@@ -136,18 +162,28 @@ export class ElmProjectManager {
                   const elm_project_json = JSON.parse(elm_project_doc)
                   const direct_dependencies = _.get(elm_project_json, 'dependencies.direct', [])
 
-                  const dependencies = _.keys(direct_dependencies).map(pkg => {
-                     const elm_dependencies_dir =
-                        process.platform === 'win32'
-                           ? Path.join(process.env['appdata']!, 'elm')
-                           : Path.join(Os.homedir(), `.elm/${elm_project_json['elm-version']}/package`)
+                  const dependencies = await Promise.all(
+                     _.keys(direct_dependencies).map(async pkg => {
+                        const elm_dependencies_dir =
+                           process.platform === 'win32'
+                              ? Path.join(process.env['appdata']!, 'elm')
+                              : Path.join(Os.homedir(), `.elm/${elm_project_json['elm-version']}/package`)
 
-                     return {
-                        name: pkg,
-                        version: direct_dependencies[pkg],
-                        package_path: Path.join(elm_dependencies_dir, pkg, direct_dependencies[pkg]),
-                     }
-                  })
+                        const package_path = Path.join(elm_dependencies_dir, pkg, direct_dependencies[pkg])
+
+                        const documentation = JSON.parse(
+                           (await this.readFileOrNull(Path.join(package_path, 'documentation.json')))!
+                        )
+
+                        return {
+                           name: pkg,
+                           version: direct_dependencies[pkg],
+                           package_path: package_path,
+                           exposed_modules: documentation.map((x: { name: string }) => x.name),
+                           documentation: documentation,
+                        }
+                     })
+                  )
 
                   return {
                      project_type: <'application'>'application',

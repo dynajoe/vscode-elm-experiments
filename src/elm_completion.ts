@@ -1,9 +1,21 @@
 import * as vscode from 'vscode'
 import { getGlobalProjectManager } from './elm_project'
 import * as _ from 'lodash'
-import { Module, ModuleImport, exposedOnlyView } from 'elm-module-parser'
+import { ModuleImport, exposedOnlyView } from 'elm-module-parser'
 
 type ModuleContext = 'function' | 'import' | 'type' | 'module'
+
+export class ElmCompletionItem extends vscode.CompletionItem {
+   constructor(
+      label: string,
+      kind: vscode.CompletionItemKind,
+      public contextual_path: string,
+      public module: string,
+      public name: string
+   ) {
+      super(label, kind)
+   }
+}
 
 export class ElmCompletionProvider implements vscode.CompletionItemProvider {
    async provideCompletionItems(
@@ -28,7 +40,7 @@ export class ElmCompletionProvider implements vscode.CompletionItemProvider {
          return []
       }
 
-      const { context, text, prefix } = this.determineContext(elm_module, document, position)
+      const { context, text, prefix } = this.determineContext(document, position)
 
       const possible_imports = _.filter(
          elm_module.imports,
@@ -47,16 +59,37 @@ export class ElmCompletionProvider implements vscode.CompletionItemProvider {
       if (context === 'function') {
          return _.concat(
             elm_module.function_declarations.map(d => {
-               return new vscode.CompletionItem(d.name, vscode.CompletionItemKind.Function)
+               return new ElmCompletionItem(
+                  d.name,
+                  vscode.CompletionItemKind.Function,
+                  document.fileName,
+                  elm_module.name,
+                  d.name
+               )
             }),
             _.flatMap(import_views, v => {
                return v.view.functions.map(f => {
-                  return new vscode.CompletionItem(f.name, vscode.CompletionItemKind.Function)
+                  return new ElmCompletionItem(
+                     f.name,
+                     vscode.CompletionItemKind.Function,
+                     document.fileName,
+                     v.module.name,
+                     f.name
+                  )
                })
             }),
             _.flatMap(import_views, i => {
                return _.flatMap(i.view.custom_types, t => {
-                  return t.constructors.map(c => new vscode.CompletionItem(c.name, vscode.CompletionItemKind.Class))
+                  return t.constructors.map(
+                     c =>
+                        new ElmCompletionItem(
+                           c.name,
+                           vscode.CompletionItemKind.Class,
+                           document.fileName,
+                           i.module.name,
+                           c.name
+                        )
+                  )
                })
             })
          )
@@ -71,13 +104,22 @@ export class ElmCompletionProvider implements vscode.CompletionItemProvider {
 
                if (_.isEmpty(completion_parts)) {
                   return view.view.functions.map(t => {
-                     const fn = new vscode.CompletionItem(t.name, vscode.CompletionItemKind.Function)
-                     fn.detail = view.module.text.substring(t.location.start.offset, t.location.start.offset + 100)
-
-                     return fn
+                     return new ElmCompletionItem(
+                        t.name,
+                        vscode.CompletionItemKind.Function,
+                        document.fileName,
+                        view.module.name,
+                        t.name
+                     )
                   })
                } else {
-                  return new vscode.CompletionItem(completion_parts.join('.'), vscode.CompletionItemKind.Class)
+                  return new ElmCompletionItem(
+                     completion_parts.join('.'),
+                     vscode.CompletionItemKind.Class,
+                     document.fileName,
+                     view.module.name,
+                     view.view.name
+                  )
                }
             })
             .value()
@@ -86,14 +128,20 @@ export class ElmCompletionProvider implements vscode.CompletionItemProvider {
       return []
    }
 
-   // public async resolveCompletionItem(
-   //    completion_item: vscode.CompletionItem
-   // ): Promise<vscode.CompletionItem | undefined> {
-   //    return completion_item.
-   // }
+   public async resolveCompletionItem(completion_item: ElmCompletionItem): Promise<ElmCompletionItem> {
+      const docs = await getGlobalProjectManager().docs(
+         completion_item.contextual_path,
+         completion_item.module,
+         completion_item.name
+      )
+
+      completion_item.detail = _.isNil(docs) ? '' : `${docs['name']} : ${docs['type']}`
+      completion_item.documentation = _.isNil(docs) ? '' : `${docs['comment']}`
+
+      return completion_item
+   }
 
    determineContext(
-      elm_module: Module,
       document: vscode.TextDocument,
       position: vscode.Position
    ): { context: ModuleContext; prefix: string; text: string } {
@@ -113,7 +161,11 @@ export class ElmCompletionProvider implements vscode.CompletionItemProvider {
 const ELM_MODE: vscode.DocumentFilter = { language: 'elm', scheme: 'file' }
 
 export function registerElmCompetionProviders(context: vscode.ExtensionContext) {
-   const completion_provider = vscode.languages.registerCompletionItemProvider(ELM_MODE, new ElmCompletionProvider())
+   const completion_provider = vscode.languages.registerCompletionItemProvider(
+      ELM_MODE,
+      new ElmCompletionProvider(),
+      '.'
+   )
 
    vscode.workspace.onDidSaveTextDocument(d => {
       getGlobalProjectManager().invalidatePath(d.fileName)
